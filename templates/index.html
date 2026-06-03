@@ -382,9 +382,13 @@
             {% endfor %}
             
             {% if leaderboard|length > 6 %}
-            <button id="seeMoreBtn" class="btn" style="padding: 0.5rem 1rem; font-size: 0.85rem; margin-top: 10px; margin-bottom: 5px; cursor: pointer;" onclick="toggleLeaderboard()">See More</button>
+            <button class="btn" id="see-more-btn" style="margin-top: 0.5rem;" onclick="toggleLeaderboard()">See More</button>
             {% endif %}
             
+            <button class="btn" id="restart-tournament-btn" style="margin-top: 1rem; background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5;" onclick="restartTournament()">
+                <i class="fas fa-sync-alt" style="margin-right: 8px;"></i> Restart Tournament
+            </button>
+
             <div style="margin-top: auto; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
                 To update the leaderboard, run <br><code>python tournament.py</code><br> and refresh the page.
             </div>
@@ -471,6 +475,21 @@
             const extras = document.querySelectorAll('.lb-row-extra');
             extras.forEach(el => el.style.display = lbExpanded ? 'flex' : 'none');
             document.getElementById('seeMoreBtn').textContent = lbExpanded ? 'See Less' : 'See More';
+        }
+        async function restartTournament() {
+            if(!confirm('Are you sure you want to restart the tournament? Elo ratings will reset to 1200, but previous match history is safely preserved.')) return;
+            
+            try {
+                const response = await fetch('/api/restart_tournament', { method: 'POST' });
+                const result = await response.json();
+                if (result.success) {
+                    window.location.reload();
+                } else {
+                    alert('Error restarting tournament: ' + result.error);
+                }
+            } catch (err) {
+                alert('Request failed: ' + err);
+            }
         }
     </script>
 </body>

@@ -129,6 +129,18 @@ def api_stats():
     stats = analytics.analyze_matches(log_path)
     return jsonify(stats)
 
+@app.route('/api/restart_tournament', methods=['POST'])
+def restart_tournament():
+    try:
+        import time
+        state_file = os.path.join(run_match.BASE_DIR, "tournament_state.json")
+        if os.path.exists(state_file):
+            backup_file = os.path.join(run_match.BASE_DIR, f"tournament_state_backup_{int(time.time())}.json")
+            os.rename(state_file, backup_file)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
 @app.route('/analytics')
 def analytics_page():
     return render_template('analytics.html', models=MODELS)
