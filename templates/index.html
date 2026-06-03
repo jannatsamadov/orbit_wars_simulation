@@ -30,13 +30,21 @@
         }
 
         .navbar {
-            padding: 1.5rem 2rem;
+            padding: 1.5rem 0;
             border-bottom: 1px solid var(--border-color);
             background: rgba(15, 23, 42, 0.8);
             backdrop-filter: blur(12px);
+            width: 100%;
+        }
+
+        .nav-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 2rem;
             display: flex;
-            justify-content: space-between;
             align-items: center;
+            gap: 3rem;
+            box-sizing: border-box;
         }
 
         .navbar h1 {
@@ -267,8 +275,13 @@
 <body>
 
     <div class="navbar">
-        <h1>Orbit Wars Dashboard</h1>
-        <div style="font-size: 0.875rem; color: var(--text-muted);">Antigravity Agent Studio</div>
+        <div class="nav-content">
+            <h1>Orbit Wars Dashboard</h1>
+            <div style="display: flex; gap: 1.5rem; align-items: center; margin-top: 5px;">
+                <a href="/" style="color: var(--accent); text-decoration: none; font-weight: bold; font-size: 1.05rem;">Simulator</a>
+                <a href="/analytics" style="color: var(--text-muted); text-decoration: none; font-size: 1.05rem; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='var(--text-muted)'">Analytics</a>
+            </div>
+        </div>
     </div>
 
     <div class="container">

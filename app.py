@@ -1,6 +1,7 @@
 from flask import Flask, render_template, request, jsonify, send_file
 import os
 import run_match
+import analytics
 
 app = Flask(__name__)
 
@@ -109,6 +110,16 @@ def run_game():
 def serve_replay(filename):
     replay_dir = os.path.join(run_match.BASE_DIR, "replays")
     return send_file(os.path.join(replay_dir, filename))
+
+@app.route('/api/stats')
+def api_stats():
+    log_path = os.path.join(run_match.BASE_DIR, "results", "match_log.txt")
+    stats = analytics.analyze_matches(log_path)
+    return jsonify(stats)
+
+@app.route('/analytics')
+def analytics_page():
+    return render_template('analytics.html', models=MODELS)
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000, use_reloader=False)

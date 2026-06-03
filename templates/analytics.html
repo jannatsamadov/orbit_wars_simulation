@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Orbit Wars - Analytics Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --panel-bg: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --accent: #3b82f6;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-main);
+            background-image: 
+                radial-gradient(circle at 15% 50%, rgba(59, 130, 246, 0.15), transparent 25%),
+                radial-gradient(circle at 85% 30%, rgba(139, 92, 246, 0.15), transparent 25%);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .navbar {
+            padding: 1.5rem 0;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(12px);
+            width: 100%;
+        }
+
+        .nav-content {
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 0 2rem;
+            display: flex;
+            align-items: center;
+            gap: 3rem;
+            box-sizing: border-box;
+        }
+
+        .navbar h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(to right, #60a5fa, #a78bfa);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .container {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1600px;
+            margin: 0 auto;
+            width: 100%;
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+        }
+
+        .stats-row {
+            display: flex;
+            gap: 2rem;
+        }
+
+        .card {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 1.5rem;
+            backdrop-filter: blur(16px);
+            flex: 1;
+        }
+
+        .card-title {
+            font-size: 1.25rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            color: var(--text-main);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        /* Matrix Table */
+        table {
+            border-collapse: collapse;
+            font-size: 0.85rem;
+            margin: 0 auto;
+        }
+        th, td {
+            border: 1px solid var(--bg-dark);
+        }
+        td {
+            width: 25px;
+            height: 25px;
+            padding: 0;
+            transition: transform 0.1s;
+        }
+        td:hover {
+            transform: scale(1.1);
+            z-index: 10;
+            position: relative;
+            box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        }
+        th {
+            background: rgba(15, 23, 42, 0.8);
+            color: var(--text-muted);
+            font-weight: 600;
+            padding: 0.5rem;
+        }
+        td.first-col {
+            background: rgba(15, 23, 42, 0.8);
+            color: var(--text-muted);
+            font-weight: 600;
+            text-align: right;
+            padding: 0.5rem;
+            width: auto;
+        }
+        
+        .spinner {
+            margin: 20px auto;
+            width: 40px;
+            height: 40px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-left-color: var(--accent);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-panel {
+            background: rgba(59, 130, 246, 0.1);
+            border: 1px solid rgba(59, 130, 246, 0.3);
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            color: #bfdbfe;
+        }
+
+        .info-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #60a5fa;
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="navbar">
+        <div class="nav-content">
+            <h1>Orbit Wars Dashboard</h1>
+            <div style="display: flex; gap: 1.5rem; align-items: center; margin-top: 5px;">
+                <a href="/" style="color: var(--text-muted); text-decoration: none; font-size: 1.05rem; transition: color 0.2s;" onmouseover="this.style.color='#f8fafc'" onmouseout="this.style.color='var(--text-muted)'">Simulator</a>
+                <a href="/analytics" style="color: var(--accent); text-decoration: none; font-weight: bold; font-size: 1.05rem;">Analytics</a>
+            </div>
+        </div>
+    </div>
+
+    <div class="container">
+        
+        <div id="loader" class="spinner"></div>
+
+        <div id="content" style="display: none; flex-direction: column; gap: 2rem;">
+            <!-- Top Row: General Stats & Bar Chart -->
+            <div class="stats-row">
+                <!-- Info Summary -->
+                <div class="card" style="flex: 0 0 300px; display: flex; flex-direction: column; gap: 1rem;">
+                    <div class="card-title">Ümumi Statistika</div>
+                    <div class="info-panel">
+                        <div class="info-number" id="tot-matches">0</div>
+                        <div>Oynanılmış Turnir Oyunu</div>
+                    </div>
+                    <div class="info-panel">
+                        <div class="info-number" id="tot-seeds">0</div>
+                        <div>Unikal Seed (Xəritə)</div>
+                    </div>
+                    <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; margin-top: auto;">
+                        <strong>Seed Analizi haqqında:</strong> Hər bir oyunda xəritə strukturu (seed) unikal olduğu üçün hər seed cəmi 1 dəfə oynanılır. Bu səbəblə bir modelin müəyyən bir seed nömrəsində daha güclü olduğunu birbaşa ölçmək qeyri-mümkündür. 
+                        Əvəzində diqqətimizi <strong>2-nəfərlik vs 4-nəfərlik (FFA)</strong> oyunlardakı fərqlərə yönəldirik.
+                    </div>
+                </div>
+
+                <!-- Bar Chart: Game Size Performance -->
+                <div class="card" style="flex: 1;">
+                    <div class="card-title">Win Rate müqayisəsi: 2-Player vs 4-Player</div>
+                    <div style="position: relative; height: 350px; width: 100%;">
+                        <canvas id="sizeChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom Row: Head to Head Matrix -->
+            <div class="card">
+                <div class="card-title">Head-to-Head Win Rate (Təkbətək qələbə faizi)</div>
+                <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
+                    Sətirlər: <strong>Qalib (Hücumçu)</strong> | Sütunlar: <strong>Məğlub (Rəqib)</strong>. <br>
+                    Rənglər qalibiyyət faizini (Win Rate) göstərir: Yaşıl (>50%), Qırmızı (<50%). Təkbətək (2-Player) matçları əsas götürür.
+                </div>
+                <div style="overflow-x: auto;">
+                    <table id="h2hTable">
+                        <!-- Populated by JS -->
+                    </table>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        Chart.defaults.devicePixelRatio = window.devicePixelRatio || 2;
+
+        const colorScale = (value) => {
+            if (value === null || value === undefined) return 'transparent'; // No matches
+            const greenIntensity = Math.round((value / 100) * 220); // 0 to 220
+            return `rgb(0, ${greenIntensity}, 0)`;
+        };
+
+        const shortName = (name) => {
+            return name.replace('_precision_striker', ' (Prc)')
+                       .replace('_adaptive_conqueror', ' (Adp)')
+                       .replace('_swarm_intelligence', ' (Swm)')
+                       .replace('_macro_swarm', ' (M-Swm)')
+                       .replace('_sniper_plus', ' (Sn+)')
+                       .replace('chatgpt', 'gpt')
+                       .replace('geminipro', 'gem');
+        };
+
+        async function fetchStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                
+                document.getElementById('loader').style.display = 'none';
+                document.getElementById('content').style.display = 'flex';
+                
+                document.getElementById('tot-matches').textContent = data.total_matches_analyzed;
+                document.getElementById('tot-seeds').textContent = data.unique_seeds;
+
+                buildSizeChart(data.size_perf);
+                buildH2HTable(data.head_to_head);
+
+            } catch (err) {
+                console.error("Failed to load stats", err);
+                document.getElementById('loader').innerHTML = `<div style="color:red; text-align:center;">Failed to load statistics: ${err}</div>`;
+            }
+        }
+
+        function buildSizeChart(sizePerf) {
+            const ctx = document.getElementById('sizeChart').getContext('2d');
+            
+            // Extract model names and sort by total matches to show most active ones first
+            let models = Object.keys(sizePerf);
+            models.sort((a,b) => {
+                let m_a = sizePerf[a]["2"].matches + sizePerf[a]["4"].matches;
+                let m_b = sizePerf[b]["2"].matches + sizePerf[b]["4"].matches;
+                return m_b - m_a;
+            });
+            
+            // Limit to top 15 models to avoid clutter
+            models = models.slice(0, 15);
+            
+            const labels = models.map(m => shortName(m));
+            const data2P = models.map(m => sizePerf[m]["2"].win_rate);
+            const data4P = models.map(m => sizePerf[m]["4"].win_rate);
+
+            new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '2-Player Win Rate (%)',
+                            data: data2P,
+                            backgroundColor: 'rgba(59, 130, 246, 0.8)',
+                            borderColor: 'rgba(59, 130, 246, 1)',
+                            borderWidth: 1
+                        },
+                        {
+                            label: '4-Player Win Rate (%)',
+                            data: data4P,
+                            backgroundColor: 'rgba(168, 85, 247, 0.8)',
+                            borderColor: 'rgba(168, 85, 247, 1)',
+                            borderWidth: 1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            beginAtZero: true,
+                            max: 100,
+                            grid: { color: 'rgba(255,255,255,0.1)' },
+                            ticks: { color: '#94a3b8' }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#f8fafc', maxRotation: 45, minRotation: 45 }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#f8fafc' } }
+                    }
+                }
+            });
+        }
+
+        function buildH2HTable(h2h) {
+            const table = document.getElementById('h2hTable');
+            let models = Object.keys(h2h);
+            
+            // Sort by average win rate across all opponents
+            models.sort((a, b) => {
+                let sumA = 0, countA = 0;
+                let sumB = 0, countB = 0;
+                for (let opp in h2h[a]) { sumA += h2h[a][opp].win_rate; countA++; }
+                for (let opp in h2h[b]) { sumB += h2h[b][opp].win_rate; countB++; }
+                let avgA = countA > 0 ? sumA/countA : 0;
+                let avgB = countB > 0 ? sumB/countB : 0;
+                return avgB - avgA; // descending
+            });
+            
+            // Header Row
+            let thead = '<tr><th>vs</th>';
+            models.forEach(m => {
+                thead += `<th title="${m}">${shortName(m)}</th>`;
+            });
+            thead += '</tr>';
+            table.innerHTML = thead;
+
+            // Body Rows
+            models.forEach(m1 => {
+                let tr = document.createElement('tr');
+                tr.innerHTML = `<td class="first-col" title="${m1}">${shortName(m1)}</td>`;
+                
+                models.forEach(m2 => {
+                    let td = document.createElement('td');
+                    if (m1 === m2) {
+                        td.style.background = 'rgba(255,255,255,0.05)';
+                        td.title = "N/A (Same Model)";
+                    } else {
+                        const stats = h2h[m1][m2];
+                        if (stats && stats.matches > 0) {
+                            td.style.background = colorScale(stats.win_rate);
+                            td.title = `${shortName(m1)} vs ${shortName(m2)}: ${stats.win_rate}% Win Rate (${stats.wins}/${stats.matches} wins)`;
+                        } else {
+                            td.style.background = 'rgba(255, 255, 255, 0.02)';
+                            td.title = `${shortName(m1)} vs ${shortName(m2)}: 0 Matches`;
+                        }
+                    }
+                    tr.appendChild(td);
+                });
+                table.appendChild(tr);
+            });
+        }
+
+        window.onload = fetchStats;
+    </script>
+</body>
+</html>
