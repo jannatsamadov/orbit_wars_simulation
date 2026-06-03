@@ -129,14 +129,27 @@ def api_stats():
     stats = analytics.analyze_matches(log_path)
     return jsonify(stats)
 
+import subprocess
+tournament_process = None
+
 @app.route('/api/restart_tournament', methods=['POST'])
 def restart_tournament():
+    global tournament_process
     try:
         import time
         state_file = os.path.join(run_match.BASE_DIR, "tournament_state.json")
         if os.path.exists(state_file):
             backup_file = os.path.join(run_match.BASE_DIR, f"tournament_state_backup_{int(time.time())}.json")
             os.rename(state_file, backup_file)
+            
+        if tournament_process is not None:
+            try:
+                tournament_process.terminate()
+            except:
+                pass
+                
+        tournament_process = subprocess.Popen(["python", "tournament.py"], cwd=run_match.BASE_DIR)
+        
         return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)})
