@@ -49,11 +49,23 @@ def index():
                     "elo": round(elo, 1),
                     "matches": agent_matches.get(agent, 0)
                 })
-            # Sort by Elo descending
-            leaderboard.sort(key=lambda x: x["elo"], reverse=True)
-            # Add rank
-            for i, p in enumerate(leaderboard):
-                p["rank"] = i + 1
+                
+    # Ensure all available models (even if not in tournament state yet) appear in leaderboard
+    leaderboard_names = {p["name"] for p in leaderboard}
+    for key, display_name in MODELS.items():
+        if key == "random": continue
+        if display_name not in leaderboard_names:
+            leaderboard.append({
+                "name": display_name,
+                "elo": 1200.0,
+                "matches": 0
+            })
+            
+    # Sort by Elo descending
+    leaderboard.sort(key=lambda x: x["elo"], reverse=True)
+    # Add rank
+    for i, p in enumerate(leaderboard):
+        p["rank"] = i + 1
     
     return render_template('index.html', models=MODELS, leaderboard=leaderboard, total_matches=matches_played)
 
