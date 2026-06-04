@@ -179,24 +179,23 @@
             <div class="stats-row">
                 <!-- Info Summary -->
                 <div class="card" style="flex: 0 0 300px; display: flex; flex-direction: column; gap: 1rem;">
-                    <div class="card-title">Ümumi Statistika</div>
+                    <div class="card-title">General Statistics</div>
                     <div class="info-panel">
                         <div class="info-number" id="tot-matches">0</div>
-                        <div>Oynanılmış Turnir Oyunu</div>
+                        <div>Tournament Matches Played</div>
                     </div>
                     <div class="info-panel">
                         <div class="info-number" id="tot-seeds">0</div>
-                        <div>Unikal Seed (Xəritə)</div>
+                        <div>Unique Seeds</div>
                     </div>
                     <div style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; margin-top: auto;">
-                        <strong>Seed Analizi haqqında:</strong> Hər bir oyunda xəritə strukturu (seed) unikal olduğu üçün hər seed cəmi 1 dəfə oynanılır. Bu səbəblə bir modelin müəyyən bir seed nömrəsində daha güclü olduğunu birbaşa ölçmək qeyri-mümkündür. 
-                        Əvəzində diqqətimizi <strong>2-nəfərlik vs 4-nəfərlik (FFA)</strong> oyunlardakı fərqlərə yönəldirik.
+                        <strong>About Seed Analysis:</strong> Since the map layout is unique for each seed, every seed is only played once. This makes measuring absolute performance on a single seed impossible. Instead, we focus on performance differences between <strong>2-Player vs 4-Player (FFA)</strong> modes.
                     </div>
                 </div>
 
                 <!-- Bar Chart: Game Size Performance -->
                 <div class="card" style="flex: 1;">
-                    <div class="card-title">Win Rate müqayisəsi: 2-Player vs 4-Player</div>
+                    <div class="card-title">Win Rate Comparison: 2-Player vs 4-Player</div>
                     <div style="position: relative; height: 350px; width: 100%;">
                         <canvas id="sizeChart"></canvas>
                     </div>
@@ -205,10 +204,9 @@
 
             <!-- Bottom Row: Head to Head Matrix -->
             <div class="card">
-                <div class="card-title">Head-to-Head Win Rate (Təkbətək qələbə faizi)</div>
+                <div class="card-title">Head-to-Head Win Rate</div>
                 <div style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 1rem;">
-                    Sətirlər: <strong>Qalib (Hücumçu)</strong> | Sütunlar: <strong>Məğlub (Rəqib)</strong>. <br>
-                    Rənglər qalibiyyət faizini (Win Rate) göstərir: Yaşıl (>50%), Qırmızı (<50%). Təkbətək (2-Player) matçları əsas götürür.
+                    Green (>50%) vs Red (<50%). Based exclusively on 2-Player matches.
                 </div>
                 <div style="overflow-x: auto;">
                     <table id="h2hTable">
