@@ -81,7 +81,14 @@
             flex-direction: column;
             gap: 1.5rem;
             overflow-y: auto;
+            overflow-x: hidden;
             min-height: 0;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        
+        .sidebar::-webkit-scrollbar {
+            display: none;
         }
 
         .main-content {
@@ -98,7 +105,7 @@
         }
 
         .leaderboard {
-            width: 320px;
+            width: 380px;
             background: var(--panel-bg);
             border: 1px solid var(--border-color);
             border-radius: 16px;
@@ -106,11 +113,27 @@
             backdrop-filter: blur(16px);
             display: flex;
             flex-direction: column;
-            gap: 1rem;
-            overflow-y: auto;
+            overflow: hidden;
             max-height: 100%;
             align-self: stretch;
             min-height: 0;
+        }
+
+        .lb-scroll-container {
+            flex: 1;
+            overflow-y: auto;
+            overflow-x: hidden;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+            padding-right: 5px; /* Slight padding so items don't hit the very edge */
+            margin-top: 0.5rem;
+        }
+        
+        .lb-scroll-container::-webkit-scrollbar {
+            display: none;
         }
 
         .lb-title {
@@ -171,6 +194,31 @@
             gap: 0.5rem;
         }
 
+        .form-group-horizontal {
+            display: flex;
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+            gap: 1rem;
+        }
+
+        .form-group-horizontal label {
+            margin: 0;
+            white-space: nowrap;
+        }
+
+        .form-group-horizontal select, .form-group-horizontal input {
+            flex: 1;
+            width: 100%;
+            padding: 0.6rem;
+            font-size: 0.95rem;
+        }
+
+        #p1 { border-left: 4px solid #0072B2; }
+        #p2 { border-left: 4px solid #D55E00; }
+        #p3 { border-left: 4px solid #009E73; }
+        #p4 { border-left: 4px solid #F0E442; }
+
         label {
             font-size: 0.875rem;
             font-weight: 600;
@@ -198,7 +246,7 @@
         select option {
             background-color: #1e293b;
             color: #f8fafc;
-            font-size: 1.25rem;
+            font-size: 1.1rem;
             padding: 0.8rem;
         }
 
@@ -302,7 +350,7 @@
 
     <div class="container">
         <div class="sidebar">
-            <div class="form-group">
+            <div class="form-group-horizontal">
                 <label>Match Mode</label>
                 <select id="mode" onchange="togglePlayers()">
                     <option value="1v1">1 vs 1 (Duel)</option>
@@ -310,50 +358,48 @@
                 </select>
             </div>
 
-            <div class="form-group">
+            <div class="form-group-horizontal" style="margin-top: 0.5rem;">
                 <label>Seed</label>
-                <input type="number" id="seed" value="42">
+                <input type="number" id="seed" placeholder="Random">
             </div>
 
-            <hr style="border-color: var(--border-color); width: 100%; margin: 0.5rem 0;">
+            <hr style="border-color: var(--border-color); width: 100%; margin: 1rem 0;">
 
             <div class="form-group">
-                <label class="player-row"><div class="color-dot c0"></div> Player 0 (Blue)</label>
                 <select id="p1">
                     {% for val, name in models.items() %}
-                    <option value="{{val}}" {% if val == 'v5_1_macro_swarm' %}selected{% endif %}>{{name}}</option>
+                    <option value="{{val}}" {% if loop.index0 == 0 %}selected{% endif %}>{{name}}</option>
                     {% endfor %}
                 </select>
             </div>
 
             <div class="form-group">
-                <label class="player-row"><div class="color-dot c1"></div> Player 1 (Red)</label>
                 <select id="p2">
                     {% for val, name in models.items() %}
-                    <option value="{{val}}" {% if val == 'v5_swarm_intelligence' %}selected{% endif %}>{{name}}</option>
+                    <option value="{{val}}" {% if loop.index0 == 1 %}selected{% endif %}>{{name}}</option>
                     {% endfor %}
                 </select>
             </div>
 
             <div class="form-group p34">
-                <label class="player-row"><div class="color-dot c2"></div> Player 2 (Green)</label>
                 <select id="p3">
                     {% for val, name in models.items() %}
-                    <option value="{{val}}" {% if val == 'v4_adaptive_conqueror' %}selected{% endif %}>{{name}}</option>
+                    <option value="{{val}}" {% if loop.index0 == 2 %}selected{% endif %}>{{name}}</option>
                     {% endfor %}
                 </select>
             </div>
 
             <div class="form-group p34">
-                <label class="player-row"><div class="color-dot c3"></div> Player 3 (Yellow)</label>
                 <select id="p4">
                     {% for val, name in models.items() %}
-                    <option value="{{val}}" {% if val == 'v2_sniper_plus' %}selected{% endif %}>{{name}}</option>
+                    <option value="{{val}}" {% if loop.index0 == 3 %}selected{% endif %}>{{name}}</option>
                     {% endfor %}
                 </select>
             </div>
 
-            <button id="runBtn" class="btn" onclick="runSimulation()">Run Simulation</button>
+            <div id="left-bottom-wrapper" style="margin-top: auto; display: flex; flex-direction: column; width: 100%;">
+                <button id="runBtn" class="btn" style="width: 100%; margin-top: 0;" onclick="runSimulation()">Run Simulation</button>
+            </div>
         </div>
 
         <div class="main-content">
@@ -367,30 +413,28 @@
         <!-- Leaderboard Sidebar -->
         {% if leaderboard %}
         <div class="leaderboard">
-            <div class="lb-title">Global Elo Leaderboard</div>
-            <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin-top: -10px; margin-bottom: 10px;">Total Matches: {{total_matches}}</div>
-            
-            {% for player in leaderboard %}
-            <div class="lb-row rank-{{player.rank}} {% if player.rank > 6 %}lb-row-extra{% endif %}" {% if player.rank > 6 %}style="display: none;"{% endif %}>
-                <div class="lb-rank">#{{player.rank}}</div>
-                <div class="lb-name" title="{{player.name}}">{{player.name}}</div>
-                <div>
-                    <div class="lb-score">{{player.elo}}</div>
-                    <div class="lb-matches">{{player.matches}} matches</div>
-                </div>
+            <div>
+                <div class="lb-title">Global Elo Leaderboard</div>
+                <div style="font-size: 0.8rem; color: var(--text-muted); text-align: center; margin-top: -10px; margin-bottom: 5px;">Total Matches: {{total_matches}}</div>
             </div>
-            {% endfor %}
             
-            {% if leaderboard|length > 6 %}
-            <button class="btn" id="see-more-btn" style="margin-top: 0.5rem;" onclick="toggleLeaderboard()">See More</button>
-            {% endif %}
+            <div class="lb-scroll-container">
+                {% for player in leaderboard %}
+                <div class="lb-row rank-{{player.rank}}">
+                    <div class="lb-rank">#{{player.rank}}</div>
+                    <div class="lb-name" title="{{player.name}}">{{player.name}}</div>
+                    <div>
+                        <div class="lb-score">{{player.elo}}</div>
+                        <div class="lb-matches">{{player.matches}} matches</div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
             
-            <button class="btn" id="restart-tournament-btn" style="margin-top: 1rem; background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5;" onclick="restartTournament()">
-                <i class="fas fa-sync-alt" style="margin-right: 8px;"></i> Restart Tournament
-            </button>
-
-            <div style="margin-top: auto; font-size: 0.75rem; color: var(--text-muted); text-align: center;">
-                To update the leaderboard, run <br><code>python tournament.py</code><br> and refresh the page.
+            <div style="margin-top: 1rem; display: flex; flex-direction: column; width: 100%;">
+                <button class="btn" id="restart-tournament-btn" style="width: 100%; background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.5); color: #fca5a5; margin-top: 0;" onclick="restartTournament()">
+                    <i class="fas fa-sync-alt" style="margin-right: 8px;"></i> Restart Tournament
+                </button>
             </div>
         </div>
         {% endif %}
@@ -445,13 +489,17 @@
                     data.scores.forEach(s => {
                         scoreHtml += `<div style='font-size: 13px; margin-bottom: 5px;'>${s}</div>`;
                     });
+                    if (data.seed) {
+                        scoreHtml += `<div style='font-size: 13px; margin-top: 10px; color: var(--accent);'>Seed: ${data.seed}</div>`;
+                    }
                     scoreHtml += "</div>";
                     
                     let scoreDiv = document.getElementById('final-scores');
                     if (!scoreDiv) {
                         scoreDiv = document.createElement('div');
                         scoreDiv.id = 'final-scores';
-                        document.querySelector('.sidebar').appendChild(scoreDiv);
+                        scoreDiv.style.marginBottom = '10px';
+                        document.getElementById('left-bottom-wrapper').insertBefore(scoreDiv, document.getElementById('runBtn'));
                     }
                     scoreDiv.innerHTML = scoreHtml;
                     
@@ -469,13 +517,7 @@
             btn.disabled = false;
         }
 
-        let lbExpanded = false;
-        function toggleLeaderboard() {
-            lbExpanded = !lbExpanded;
-            const extras = document.querySelectorAll('.lb-row-extra');
-            extras.forEach(el => el.style.display = lbExpanded ? 'flex' : 'none');
-            document.getElementById('seeMoreBtn').textContent = lbExpanded ? 'See Less' : 'See More';
-        }
+
         async function restartTournament() {
             if(!confirm('Are you sure you want to restart the tournament? Elo ratings will reset to 1200, but previous match history is safely preserved.')) return;
             

@@ -1,0 +1,945 @@
+Validated mathematical model and prepared implementation strategy
+Validated mathematical model and prepared implementation strategy
+The user has provided a detailed codebase for "Orbit Wars" with a working kinematics engine and ray tracing system, and wants me to design the advanced mathematical strategy layer.
+
+Let me understand what they're asking:
+
+The Question (simplified): Given:
+
+Current turn state (all planets, fleets, their positions, owners, ships)
+Ray-traced fleet destinations (which fleets go where, when they arrive, how many ships)
+Planet timeline simulation (what happens to each planet over next 80 turns)
+Find: Optimal set of moves for the current turn (which planet sends ships to which, how many) such that one turn after ALL currently-in-flight fleets and our new fleets reach their targets, our production rate (production_rate) and total ship count (fleet_size) are maximized.
+
+The user wants:
+
+Advanced mathematical formulas/framework
+Mathematical optimization approach (Lagrangian or similar)
+Unknown weight coefficients that can be tuned later
+Let me break this down mathematically:
+
+Objective Function: Maximize: f(x) = α · P(T+1) + β · S(T+1)
+
+Where:
+
+P(T+1) = our total production rate at turn T+1 (sum of production of all planets we'll own at T+1)
+S(T+1) = our total ship count at turn T+1 (garrison on all planets + ships in transit)
+α, β = weight parameters
+x = decision variables (fleet assignments)
+Decision Variables: For each source planet i and target planet j:
+
+x_{ij} = number of ships to send from planet i to planet j (integer)
+θ_{ij} = launch angle (determined by kinematics engine)
+T_{ij} = arrival turn (determined by fleet speed and distance)
+State at T+1: After all fleets (existing + new) reach their targets, the state changes.
+
+Let me think about the mathematical formulation more carefully.
+
+Planet Ownership at T+1: For each planet j at turn T+1:
+
+Owner depends on: current garrison + production up to arrival - enemy arrivals + friendly arrivals
+This is already computed by the TimelineSimulator …
+Show less
+
+Verify mathematical formulas before writing the strategy layer
+bash
+
+python3 - <<'EOF'
+# Verify the math of the key formulas before writing the full code
+import math
+
+# Fleet speed formula (from their code)
+def fleet_speed(ships):
+    if ships <= 1: return 1.0
+    ratio = max(0.0, min(1.0, math.log(ships) / math.log(1000.0)))
+    return 1.0 + 5.0 * (ratio ** 1.5)
+
+# Crossover turn T* formula verification
+# From dJ/dS = W_FORT * prod_j - W_OPP * T * (prod_i / G_i) = 0
+# → T* = W_FORT * prod_j * G_i / (W_OPP * prod_i)
+W_FORT, W_OPP = 0.04, 0.08
+prod_j, prod_i, G_i = 5.0, 3.0, 120.0
+
+T_star = W_FORT * prod_j * G_i / (W_OPP * prod_i)
+print(f"T* = {T_star:.1f} turns")
+print(f"  → T < {T_star:.0f}: send extra ships (fortify)")
+print(f"  → T >= {T_star:.0f}: send S_min only (opportunity cost dominates)")
+
+# Speed-derived minimum ships for arrival at turn T
+def s_speed_for_turn(dist, T):
+    req_speed = dist / T
+    if req_speed <= 1.0: return 1
+    ratio = ((req_speed - 1.0) / 5.0) ** (1.0 / 1.5)
+    return int(math.ceil(1000.0 ** ratio))
+
+print("\nSpeed-required ships vs arrival turn (dist=40 units):")
+for T in [5, 10, 15, 20, 30, 40]:
+    s = s_speed_for_turn(40, T)
+    v = fleet_speed(s)
+    print(f"  T={T:2d}: S_speed={s:4d}, v={v:.2f}, actual_T={math.ceil(40/v)}")
+
+# Shadow price update: as budget depletes → λ rises
+print("\nShadow price dynamics:")
+budget = 100
+for committed in [0, 25, 50, 75, 90, 99]:
+    remaining = budget - committed
+    if remaining > 0:
+        lam = (committed / remaining) * W_OPP
+        print(f"  committed={committed:3d}/{budget}: λ={lam:.4f}")
+
+# Lagrangian net-value threshold
+print("\nNet value check: J - λ*S > 0")
+for lam in [0.0, 0.04, 0.08, 0.16]:
+    print(f"  λ={lam:.2f}: need J > {lam*10:.2f} to send 10 ships")
+EOF
+Output
+
+T* = 100.0 turns
+  → T < 100: send extra ships (fortify)
+  → T >= 100: send S_min only (opportunity cost dominates)
+
+Speed-required ships vs arrival turn (dist=40 units):
+  T= 5: S_speed=5681, v=6.00, actual_T=7
+  T=10: S_speed= 137, v=4.01, actual_T=10
+  T=15: S_speed=  28, v=2.68, actual_T=15
+  T=20: S_speed=  11, v=2.02, actual_T=20
+  T=30: S_speed=   4, v=1.45, actual_T=28
+  T=40: S_speed=   1, v=1.00, actual_T=40
+
+Shadow price dynamics:
+  committed=  0/100: λ=0.0000
+  committed= 25/100: λ=0.0267
+  committed= 50/100: λ=0.0800
+  committed= 75/100: λ=0.2400
+  committed= 90/100: λ=0.7200
+  committed= 99/100: λ=7.9200
+
+Net value check: J - λ*S > 0
+  λ=0.00: need J > 0.00 to send 10 ships
+  λ=0.04: need J > 0.40 to send 10 ships
+  λ=0.08: need J > 0.80 to send 10 ships
+  λ=0.16: need J > 1.60 to send 10 ships
+Good, the formulas check out. Now let me write the complete strategy layer.
+
+The T* = 100 turns is larger than the 80-turn horizon, meaning with the default weights, we'd always want to fortify. I need to tune the weights to make T* more reasonable (like 15-30 turns).
+
+Let me adjust: if T_h = 80, and we want T* ≈ 15-25 turns on average:
+T* = W_FORT * prod_j * G_i / (W_OPP * prod_i)
+
+For typical values prod_j = 3, G_i = 100, prod_i = 3:
+T* = W_FORT * 3 * 100 / (W_OPP * 3) = W_FORT * 100 / W_OPP
+
+For T* = 20: W_FORT / W_OPP = 0.2, so W_FORT = 0.02, W_OPP = 0.10
+
+Let me use W_FORT = 0.05, W_OPP = 0.15:
+T* = 0.05 * 3 * 100 / (0.15 * 3) = 15 / 0.45 = 33 turns
+
+That's more reasonable. Let me recalculate.
+
+Actually, T* depends on the specific planet pair. The formula should be applied per-pair, not globally. Let me keep the weights as tunable and note the typical T* for standard values.
+
+Let me now write the complete, well-documented code.
+
+Show less
+
+Tune weights and verify score components for typical scenarios
+bash
+
+python3 - <<'EOF'
+import math
+
+# Tune weights so T* lands in a useful range (10-30 turns) for typical planet pairs
+# T* = W_FORT * prod_j * G_i / (W_OPP * prod_i)
+
+# Typical scenario: prod_j=3, prod_i=3, G_i=80
+cases = [
+    ("low prod target",   2, 3, 80),
+    ("med prod target",   4, 3, 80),
+    ("high prod target",  7, 3, 80),
+    ("low prod source",   4, 1, 80),
+    ("high garrison src", 4, 3, 200),
+]
+
+for label, prod_j, prod_i, G_i in cases:
+    W_FORT, W_OPP = 0.05, 0.15
+    T_star = W_FORT * prod_j * G_i / (W_OPP * prod_i)
+    print(f"  {label:25s}: T*={T_star:5.1f}  (prod_j={prod_j}, prod_i={prod_i}, G_i={G_i})")
+
+print()
+# Verify ROI formula components for a sample plan
+alpha, beta, gamma, delta, eps, zeta = 1.0, 0.30, 0.15, 0.05, 0.90, 5.0
+T_h = 80
+T, S, S_min, prod_j, prod_i, G_i = 15, 30, 20, 5, 3, 100
+
+remaining = T_h - T
+C_prod       = (alpha + beta) * prod_j * remaining
+C_ships_cost = -beta * S_min
+C_disrupt    = eps * prod_j * remaining  # enemy target
+C_opp        = -gamma * S * T * (prod_i / G_i)
+C_fort       = delta * max(0, S - S_min) * prod_j
+J = C_prod + C_ships_cost + C_disrupt + C_opp + C_fort
+roi = J / max(1, S)
+
+print(f"Sample plan score (T={T}, S={S}, S_min={S_min}, prod_j={prod_j}):")
+print(f"  C_prod       = {C_prod:.2f}")
+print(f"  C_ships_cost = {C_ships_cost:.2f}")
+print(f"  C_disrupt    = {C_disrupt:.2f}")
+print(f"  C_opp        = {C_opp:.2f}")
+print(f"  C_fort       = {C_fort:.2f}")
+print(f"  J (total)    = {J:.2f}")
+print(f"  ROI (J/S)    = {roi:.4f}")
+
+# Compare: what if we send MORE ships (S=50) vs LESS (S=20=S_min)?
+for S_test in [S_min, 30, 50, 80]:
+    C_fort_t = delta * max(0, S_test - S_min) * prod_j
+    C_opp_t  = -gamma * S_test * T * (prod_i / G_i)
+    J_t = C_prod + C_ships_cost + C_disrupt + C_opp_t + C_fort_t
+    print(f"  S={S_test:3d}: J={J_t:7.2f}, ROI={J_t/S_test:6.3f} {'← best' if S_test==S_min else ''}")
+EOF
+Output
+
+  low prod target          : T*= 17.8  (prod_j=2, prod_i=3, G_i=80)
+  med prod target          : T*= 35.6  (prod_j=4, prod_i=3, G_i=80)
+  high prod target         : T*= 62.2  (prod_j=7, prod_i=3, G_i=80)
+  low prod source          : T*=106.7  (prod_j=4, prod_i=1, G_i=80)
+  high garrison src        : T*= 88.9  (prod_j=4, prod_i=3, G_i=200)
+
+Sample plan score (T=15, S=30, S_min=20, prod_j=5):
+  C_prod       = 422.50
+  C_ships_cost = -6.00
+  C_disrupt    = 292.50
+  C_opp        = -2.02
+  C_fort       = 2.50
+  J (total)    = 709.48
+  ROI (J/S)    = 23.6492
+  S= 20: J= 707.65, ROI=35.383 ← best
+  S= 30: J= 709.48, ROI=23.649 
+  S= 50: J= 713.12, ROI=14.262 
+  S= 80: J= 718.60, ROI= 8.982 
+Good. The math works correctly. ROI is highest at S_min (20), which confirms our analytical derivation: for this case, sending more ships only marginally increases the raw J value but hurts the ROI.
+
+The T* values make sense:
+
+Low production target: T* ≈ 18 turns (not worth fortifying much)
+Med production target: T* ≈ 36 turns (fortify if transit < 36 turns)
+High production target: T* ≈ 62 turns (almost always worth fortifying)
+Now let me write the complete strategy layer code. I'll produce the full file.
+
+Show more
+
+Complete mathematical strategy layer for Orbit Wars with Lagrangian relaxation framework
+strategy_math.py
+
+Run all unit tests on the strategy layer
+bash
+
+python3 - <<'VERIFY'
+import math, sys
+from collections import defaultdict
+
+# ── Inline minimal stubs so we can unit-test Section 7 in isolation ──────────
+def get_fleet_speed(ships):
+    if ships <= 1: return 1.0
+    ratio = max(0.0, min(1.0, math.log(ships) / math.log(1000.0)))
+    return 1.0 + 5.0 * (ratio ** 1.5)
+
+from collections import namedtuple
+Planet = namedtuple("Planet", ["id","owner","x","y","radius","ships","production"])
+
+class FakeKState:
+    def __init__(self, planets):
+        self.planets = {p.id: p for p in planets}
+    def predict_target_position(self, pid, t):
+        p = self.planets[pid]
+        return (p.x, p.y)
+
+class FakeTimeline:
+    SIM_HORIZON = 80
+    def __init__(self, planets):
+        self.timelines = {p.id: {} for p in planets}
+    def get_cost_to_capture(self, pid, T, player):
+        # Stub: neutral/enemy planet costs its current ships
+        return 10
+
+def find_valid_plan(src, tgt, timeline, avail, player, k_state):
+    # Stub: always return one plan if avail >= 10
+    if avail < 10: return []
+    d = math.hypot(tgt.x - src.x, tgt.y - src.y)
+    v = get_fleet_speed(max(10, avail))
+    T = max(1, math.ceil(d / v))
+    return [{"T": T, "ships": 10, "angle": math.atan2(tgt.y - src.y, tgt.x - src.x)}]
+
+# Now exec Section 7
+exec(open('/mnt/user-data/outputs/strategy_math.py').read())
+
+# ─── TEST 1: crossover_turn formula ──────────────────────────────────────────
+T_star = crossover_turn(src_prod=3.0, src_garrison=100.0, tgt_prod=5.0)
+expected = W_FORT * 5.0 * 100.0 / (W_OPP * 3.0)
+assert abs(T_star - expected) < 1e-6, f"T* mismatch: {T_star} vs {expected}"
+print(f"TEST 1 PASS: T* = {T_star:.2f} turns  (W_FORT={W_FORT}, W_OPP={W_OPP})")
+
+# ─── TEST 2: optimal_ship_count branches ─────────────────────────────────────
+src_p = Planet(0, 0, 10.0, 50.0, 5.0, 200.0, 3.0)
+tgt_p = Planet(1, -1, 30.0, 50.0, 5.0, 50.0, 5.0)
+
+T_early  = int(T_star * 0.4)   # inside T* → should return more than S_min
+T_late   = int(T_star * 1.5)   # outside T* → should return S_min
+
+S_early = optimal_ship_count(src_p, tgt_p, T_early, S_min=10, avail=100)
+S_late  = optimal_ship_count(src_p, tgt_p, T_late,  S_min=10, avail=100)
+
+assert S_early >= 10, "early T must return at least S_min"
+assert S_late  == 10, f"late T must return S_min=10, got {S_late}"
+print(f"TEST 2 PASS: S_early={S_early} (T={T_early}<T*), S_late={S_late} (T={T_late}>=T*)")
+
+# ─── TEST 3: plan score components ────────────────────────────────────────────
+planets = [
+    Planet(0, 0,  10.0, 10.0, 5.0, 150.0, 3.0),  # mine
+    Planet(1, -1, 70.0, 10.0, 5.0,  20.0, 5.0),  # neutral target
+    Planet(2,  1, 80.0, 80.0, 5.0,  40.0, 4.0),  # enemy target
+]
+k  = FakeKState(planets)
+tl = FakeTimeline(planets)
+tl.timelines[1] = {}
+tl.timelines[2] = {}
+
+plan = {"T": 12, "ships": 10, "angle": 0.0}
+
+roi_n, J_n = compute_plan_score(planets[0], planets[1], plan, 0, k, tl, 80, None, 1.0)
+roi_e, J_e = compute_plan_score(planets[0], planets[2], plan, 0, k, tl, 80, None, 1.5)
+
+assert J_e > J_n, f"enemy target must score higher than neutral (J_e={J_e:.2f}, J_n={J_n:.2f})"
+assert roi_n > 0 and roi_e > 0, "both scores must be positive"
+print(f"TEST 3 PASS: J_neutral={J_n:.2f}, J_enemy={J_e:.2f}  (enemy > neutral ✓)")
+
+# ─── TEST 4: full strategy generates valid moves ──────────────────────────────
+moves = generate_strategy_moves(player=0, k_state=k, timeline=tl)
+assert isinstance(moves, list), "must return list"
+for m in moves:
+    assert len(m) == 3,              f"move must have 3 elements: {m}"
+    assert m[0] in k.planets,        f"invalid source planet: {m[0]}"
+    assert isinstance(m[1], float),  f"angle must be float: {m[1]}"
+    assert isinstance(m[2], int),    f"ships must be int: {m[2]}"
+    assert m[2] >= 1,                f"must send at least 1 ship: {m[2]}"
+    p = k.planets[m[0]]
+    assert m[2] <= p.ships - 1,     f"over-budget: send {m[2]}, garrison {p.ships}"
+print(f"TEST 4 PASS: {len(moves)} valid move(s) generated: {moves}")
+
+# ─── TEST 5: shadow price rises as budget depletes ────────────────────────────
+# Simulate committing ships and verify λ rises
+lam_hist = []
+committed_sim = 0
+budget = 150
+for k_sim in [0, 30, 60, 90, 120, 149]:
+    rem = budget - k_sim
+    lam = (k_sim / rem) * W_OPP if rem > 0 else float('inf')
+    lam_hist.append(lam)
+
+assert lam_hist == sorted(lam_hist), "λ must be monotonically non-decreasing"
+print(f"TEST 5 PASS: λ sequence: {[f'{l:.4f}' for l in lam_hist]}")
+
+# ─── TEST 6: no moves from empty planet list ─────────────────────────────────
+k_empty = FakeKState([])
+k_empty.planets = {}
+tl_empty = FakeTimeline([])
+tl_empty.timelines = {}
+moves_empty = generate_strategy_moves(player=0, k_state=k_empty, timeline=tl_empty)
+assert moves_empty == [], f"empty planets must give [], got {moves_empty}"
+print("TEST 6 PASS: empty planet list → []")
+
+print("\n✅  All 6 tests passed.")
+VERIFY
+Output
+
+TEST 1 PASS: T* = 55.56 turns  (W_FORT=0.05, W_OPP=0.15)
+Done
+
+Strategy math · PY
+"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║   ORBIT WARS — Mathematical Strategy Layer                                  ║
+║   Lagrangian Relaxation of the Ship-Budget Constrained Optimisation         ║
+╠══════════════════════════════════════════════════════════════════════════════╣
+║                                                                              ║
+║  PROBLEM STATEMENT (Integer Program)                                         ║
+║  ─────────────────────────────────────────────────────────────────────────  ║
+║                                                                              ║
+║  Variables:  x_{ijT} ∈ ℤ≥0   (ships from planet i → j, arriving at turn T) ║
+║                                                                              ║
+║  Maximise:   J = α · P(T_h)  +  β · S(T_h)                                 ║
+║                                                                              ║
+║    where  P(T_h) = Σ_j  prod_j · I(owner_j(T_h) = me)   [production rate]  ║
+║           S(T_h) = Σ_j garrison_j(T_h) · I(owner = me)  [total ships]      ║
+║           T_h    = evaluation horizon (SIM_HORIZON turns) ║
+║                                                                              ║
+║  Subject to:                                                                 ║
+║    Σ_{j,T} x_{ijT} ≤ G_i − 1    ∀ i   (budget: keep ≥ 1 ship)             ║
+║    x_{ijT} ≥ S_min(i,j,T)              (enough to capture / defend)         ║
+║    x_{ijT} ∈ ℤ≥0                                                            ║
+║                                                                              ║
+║  LAGRANGIAN RELAXATION                                                       ║
+║  ─────────────────────────────────────────────────────────────────────────  ║
+║  Relax the per-source budget constraints with multipliers λ_i ≥ 0:          ║
+║                                                                              ║
+║    L(x, λ) = J(x) − Σ_i λ_i · (Σ_{j,T} x_{ijT} − (G_i − 1))             ║
+║            = Σ_{i,j,T} [Score(i,j,T,S) − λ_i · S]   +  const              ║
+║                                                                              ║
+║  Complementary slackness at optimum:                                         ║
+║    Active plan (i→j):   ∂Score/∂S = λ_i   (marginal = shadow price)        ║
+║    Idle plan  (i→j):    ∂Score/∂S ≤ λ_i                                    ║
+║                                                                              ║
+║  ANALYTICAL SCORE DECOMPOSITION                                              ║
+║  ─────────────────────────────────────────────────────────────────────────  ║
+║  For plan (i → j, arrival turn T, ships S, S_min = min to capture):         ║
+║                                                                              ║
+║  J(i→j,T,S) =                                                               ║
+║    (α+β)·prod_j·max(0, T_h−T)        ← time-discounted production PV       ║
+║   − β·S_min                           ← minimum ship cost                   ║
+║   + ε·prod_j·max(0, T_h−T)·I(enemy)  ← disruption swing (gain + deny)     ║
+║   + δ·(S−S_min)·prod_j               ← fortification bonus (extra garrison) ║
+║   − γ·S·T·(prod_i / G_i)             ← opportunity cost of transit          ║
+║   + ζ·prod_j·T_h·I(my planet falls)  ← emergency defence premium           ║
+║                                                                              ║
+║  ROI score = J(i→j,T,S) / S          (value per ship invested)              ║
+║                                                                              ║
+║  OPTIMAL SHIP COUNT (closed-form crossover)                                  ║
+║  ─────────────────────────────────────────────────────────────────────────  ║
+║  Differentiate J w.r.t. S (T fixed):                                         ║
+║                                                                              ║
+║    dJ/dS = δ·prod_j  −  γ·T·(prod_i / G_i)                                 ║
+║                                                                              ║
+║  Setting dJ/dS = 0  →  crossover turn:                                      ║
+║                                                                              ║
+║         T* = (δ · prod_j · G_i) / (γ · prod_i)                             ║
+║                                                                              ║
+║  Decision rule:                                                              ║
+║    T  < T*  →  dJ/dS > 0  →  send MORE ships (fortify; ROI rises)          ║
+║    T ≥ T*  →  dJ/dS < 0  →  send S_min only  (opportunity cost dominates)  ║
+║                                                                              ║
+║  SHADOW PRICE DYNAMICS                                                       ║
+║  ─────────────────────────────────────────────────────────────────────────  ║
+║  As budget depletes, remaining ships become more valuable:                   ║
+║    λ_i(k) = (ships_committed_i(k) / ships_remaining_i(k)) · γ              ║
+║  → λ rises steeply near full commitment (scarcity premium)                   ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+
+import math
+from collections import defaultdict
+
+# ── Drop-in dependency (already defined in the kinematic engine section) ──────
+# get_fleet_speed, KinematicsState, TimelineSimulator, find_valid_plan
+
+
+# ==============================================================================
+# SECTION 7-A  ─  Hyper-Parameters (Lagrangian weight vector w = [α,β,γ,δ,ε,ζ])
+# ==============================================================================
+#
+# All weights are dimensionless multipliers; tune via grid search or simulation.
+#
+# Intuition guide
+# ───────────────────────────────────────────────────────────────────────────────
+# α  W_PROD    1.00  Value of 1 ship/turn of production over the horizon
+# β  W_SHIPS   0.30  Value of 1 garrison ship at the horizon
+# γ  W_OPP     0.15  Penalty: 1 ship absent for 1 turn costs γ·prod_eff
+# δ  W_FORT    0.05  Bonus: 1 extra ship left on captured planet × prod_j
+# ε  W_DISRUPT 0.90  Enemy double-swing multiplier (we gain + they lose)
+# ζ  W_DEFENSE 5.00  Emergency-defence premium (loss of own planet is costly)
+# ───────────────────────────────────────────────────────────────────────────────
+
+W_PROD    = 1.00   # α
+W_SHIPS   = 0.30   # β
+W_OPP     = 0.15   # γ
+W_FORT    = 0.05   # δ
+W_DISRUPT = 0.90   # ε
+W_DEFENSE = 5.00   # ζ
+
+# Logistics (backline → frontline transfer) discount factor
+W_LOGISTICS_DISC = 0.35
+
+# Minimum surplus ships to bother doing a logistics transfer
+LOGISTICS_MIN_SURPLUS = 12
+
+
+# ==============================================================================
+# SECTION 7-B  ─  Global State Snapshot
+# ==============================================================================
+
+def _global_snapshot(k_state, player):
+    """
+    Compute per-player economic and military totals from current k_state.
+
+    Returns
+    -------
+    my_prod        : float  – my production rate (ships / turn)
+    my_ships       : float  – my total garrison across all planets
+    leader_id      : int    – opponent with highest production (None if no enemies)
+    leader_prod    : float  – leader's production rate
+    aggression     : float  – 1.0 + min(2, eco_gap / my_prod)  ∈ [1, 3]
+    player_prod    : dict   – pid → production
+    player_garrison: dict   – pid → garrison ships on planets
+    """
+    player_prod     = defaultdict(float)
+    player_garrison = defaultdict(float)
+
+    for p in k_state.planets.values():
+        player_prod    [p.owner] += p.production
+        player_garrison[p.owner] += p.ships
+
+    my_prod  = player_prod    [player]
+    my_ships = player_garrison[player]
+
+    enemy_prods = {
+        pid: pr for pid, pr in player_prod.items()
+        if pid not in (-1, player) and pr > 0
+    }
+
+    leader_id   = max(enemy_prods, key=enemy_prods.get) if enemy_prods else None
+    leader_prod = enemy_prods.get(leader_id, 0.0)
+
+    eco_gap    = max(0.0, leader_prod - my_prod)
+    aggression = 1.0 + min(2.0, eco_gap / (my_prod + 1.0))
+
+    return my_prod, my_ships, leader_id, leader_prod, aggression, player_prod, player_garrison
+
+
+# ==============================================================================
+# SECTION 7-C  ─  Crossover Turn T* & Optimal Ship Count
+# ==============================================================================
+
+def crossover_turn(src_prod, src_garrison, tgt_prod):
+    """
+    T*(i→j) = δ · prod_j · G_i / (γ · prod_i)
+
+    Below T*: marginal fortification gain > opportunity cost → send MORE ships.
+    At/above T*: opportunity cost dominates → send exactly S_min.
+
+    Parameters
+    ----------
+    src_prod     : production of source planet (prod_i)
+    src_garrison : garrison of source planet   (G_i)
+    tgt_prod     : production of target planet (prod_j)
+
+    Returns
+    -------
+    T_star : float  (in turns)
+    """
+    denom = W_OPP * max(0.01, src_prod)
+    return (W_FORT * tgt_prod * src_garrison) / denom
+
+
+def optimal_ship_count(src, tgt, T_arrive, S_min, avail):
+    """
+    Decide how many ships to send given the T* crossover rule.
+
+    If T_arrive < T*: send extra ships (fortification is worthwhile).
+        Extra ships scale as min(avail, round(S_min · sqrt(T* / T_arrive))).
+        Square-root scaling captures diminishing returns of extra garrison.
+    Else:
+        Send exactly S_min (opportunity cost dominates).
+
+    Returns
+    -------
+    S_optimal : int ∈ [S_min, avail]
+    """
+    T_star = crossover_turn(
+        src_prod     = max(0.1, src.production),
+        src_garrison = max(1,   src.ships),
+        tgt_prod     = max(0.1, tgt.production),
+    )
+
+    if T_arrive < T_star:
+        # Worthwhile to fortify; scale extra ships with sqrt of "how far inside T*"
+        fortify_factor = math.sqrt(T_star / max(1.0, T_arrive))
+        S_target = int(round(S_min * fortify_factor))
+        return max(S_min, min(avail, S_target))
+    else:
+        return S_min  # Opportunity cost dominates; send minimum
+
+
+# ==============================================================================
+# SECTION 7-D  ─  Per-Plan Score Function
+# ==============================================================================
+
+def compute_plan_score(src, tgt, plan, player, k_state, timeline, T_h,
+                       leader_id, aggression):
+    """
+    Compute (roi_score, J_absolute) for a single valid plan.
+
+    roi_score = J / S   (value per ship, used for candidate ranking)
+    J         = raw absolute Lagrangian value (used for net-value gate)
+
+    Full formula:
+    ─────────────────────────────────────────────────────────────────────────
+    J  =  (α+β)·prod_j·max(0, T_h−T)            [C_prod:   production PV]
+        − β·S_min                                 [C_cost:   ship cost]
+        + ε·prod_j·max(0, T_h−T)·I(enemy)        [C_disrupt: double swing]
+        + δ·max(0, S−S_min)·prod_j               [C_fort:   garrison bonus]
+        − γ·S·T·(prod_i / G_i)                   [C_opp:    transit cost]
+        + ζ·prod_j·T_h·I(my planet falling)       [C_def:    defence premium]
+    ─────────────────────────────────────────────────────────────────────────
+    """
+    T     = plan["T"]
+    S     = plan["ships"]
+
+    prod_j    = tgt.production
+    prod_i    = max(0.1, src.production)
+    G_i       = max(1.0, float(src.ships))
+    remaining = max(0, T_h - T)
+
+    t_owner  = tgt.owner
+    is_enemy = t_owner not in (-1, player)
+    is_mine  = t_owner == player
+
+    S_min = max(0, timeline.get_cost_to_capture(tgt.id, T, player))
+    surplus = max(0, S - S_min)
+
+    # ── Component 1: Time-Discounted Production PV ───────────────────────────
+    # (α + β) because production materialises as both rate and garrison ships
+    C_prod = (W_PROD + W_SHIPS) * prod_j * remaining
+
+    # ── Component 2: Minimum Ship Cost ───────────────────────────────────────
+    C_cost = -W_SHIPS * S_min
+
+    # ── Component 3: Economic Disruption (enemy targets only) ────────────────
+    # Attacking enemy = we gain production AND deny it to them (double swing)
+    C_disrupt = 0.0
+    if is_enemy:
+        C_disrupt = W_DISRUPT * prod_j * remaining * aggression
+        if t_owner == leader_id:
+            C_disrupt *= 1.5   # Extra weight on leader disruption
+
+    # ── Component 4: Fortification Bonus ────────────────────────────────────
+    # Surplus ships left on the captured planet act as garrison → more production
+    C_fort = W_FORT * surplus * prod_j
+
+    # ── Component 5: Opportunity Cost of Transit ─────────────────────────────
+    # Every ship is "worth" (prod_i / G_i) production-efficiency per turn.
+    # Sending S ships for T turns costs S · T · prod_efficiency.
+    prod_efficiency = prod_i / G_i
+    C_opp = -W_OPP * S * T * prod_efficiency
+
+    # ── Component 6: Emergency Defence Premium ───────────────────────────────
+    # If this is our own planet that the timeline shows falling to an enemy,
+    # multiply by ζ to ensure defence beats any attack-value plan.
+    C_def = 0.0
+    if is_mine:
+        proj_owner, _ = timeline.timelines[tgt.id].get(T, (tgt.owner, 0))
+        if proj_owner != player:
+            C_def = W_DEFENSE * prod_j * T_h
+
+    J         = C_prod + C_cost + C_disrupt + C_fort + C_opp + C_def
+    roi_score = J / max(1.0, float(S))
+
+    return roi_score, J
+
+
+# ==============================================================================
+# SECTION 7-E  ─  Threat Proximity Map (for defence triage)
+# ==============================================================================
+
+def _build_threat_map(k_state, player):
+    """
+    Aggregate incoming enemy fleet mass per my planet using spatial proximity.
+    Closest my-planet to each enemy fleet receives its ship mass.
+
+    Returns dict: my_planet_id → estimated incoming threat (ships)
+    """
+    threat = defaultdict(float)
+    my_planet_positions = {
+        pid: (p.x, p.y)
+        for pid, p in k_state.planets.items()
+        if p.owner == player
+    }
+
+    for f in getattr(k_state, 'fleets', {}).values() if hasattr(k_state, 'fleets') else []:
+        f_owner = getattr(f, 'owner', -1)
+        if f_owner in (-1, player):
+            continue
+        fx, fy = float(getattr(f, 'x', 50)), float(getattr(f, 'y', 50))
+        best_d, best_pid = float('inf'), None
+        for pid, (px, py) in my_planet_positions.items():
+            d = math.hypot(px - fx, py - fy)
+            if d < best_d:
+                best_d, best_pid = d, pid
+        if best_pid is not None:
+            threat[best_pid] += float(getattr(f, 'ships', 0))
+
+    return threat
+
+
+# ==============================================================================
+# SECTION 7-F  ─  Logistic Frontline Score
+# ==============================================================================
+
+def _frontline_score(planet, all_planets, player, sigma=20.0):
+    """
+    Gaussian military influence field at planet's position.
+    Returns exposure = enemy_influence / (my_influence + ε).
+    High exposure → frontline planet (should receive ships, not send them).
+    """
+    px, py = planet.x, planet.y
+    sigma2 = 2.0 * sigma ** 2
+    my_inf = en_inf = 0.0
+
+    for p in all_planets:
+        if p.owner == -1:
+            continue
+        d2  = (p.x - px) ** 2 + (p.y - py) ** 2
+        w   = math.exp(-d2 / sigma2)
+        mil = p.ships + p.production * 6
+
+        if p.owner == player:
+            my_inf += mil * w
+        else:
+            en_inf += mil * w
+
+    return en_inf / (my_inf + 1e-9)
+
+
+# ==============================================================================
+# SECTION 7-G  ─  Main Strategy Function
+# ==============================================================================
+
+def generate_strategy_moves(player, k_state, timeline, obs_fleets=None):
+    """
+    Lagrangian-Relaxation Strategy Layer.
+
+    Solves (approximately) the ship-budget constrained integer programme via:
+      1. Global state snapshot (economy, leader detection, aggression index)
+      2. Per-plan score computation using the analytical J formula
+      3. Optimal ship-count selection via T* crossover rule
+      4. Greedy priority-ordered assignment with adaptive shadow prices (λ_i)
+
+    Candidate types and their relative priority:
+      DEFENCE   (×5.0 boost)  : reinforce my planets projected to fall
+      ATTACK    (×1.0)        : capture enemy / neutral planets
+      LOGISTICS (×0.35)       : backline surplus → frontline accumulation
+
+    Parameters
+    ----------
+    player     : int
+    k_state    : KinematicsState
+    timeline   : TimelineSimulator
+    obs_fleets : raw fleet list from obs (optional; used for extra threat data)
+
+    Returns
+    -------
+    moves : list of [from_planet_id: int, angle: float, ships: int]
+    """
+
+    # ── Setup ──────────────────────────────────────────────────────────────────
+    my_planets  = {pid: p for pid, p in k_state.planets.items() if p.owner == player}
+    all_planets = list(k_state.planets.values())
+
+    if not my_planets:
+        return []
+
+    committed   = defaultdict(int)   # ships committed per source planet
+    T_h         = timeline.SIM_HORIZON
+
+    # ── Phase 0: Global snapshot ───────────────────────────────────────────────
+    (my_prod, my_ships,
+     leader_id, leader_prod,
+     aggression,
+     player_prod, player_garrison) = _global_snapshot(k_state, player)
+
+    # ── Phase 1: Threat triage ─────────────────────────────────────────────────
+    threat_map = _build_threat_map(k_state, player)
+
+    # Frontline classification: exposure ratio per my planet
+    exposure = {
+        pid: _frontline_score(p, all_planets, player)
+        for pid, p in my_planets.items()
+    }
+
+    # ── Phase 2: Generate & score all candidate plans ──────────────────────────
+    #
+    # Lagrangian shadow prices λ_i per source planet.
+    # Interpretation: λ_i is the current "scarcity premium" of 1 ship at planet i.
+    # A plan is worth executing only if  J(plan) − λ_i · S > 0.
+    #
+    # Initial value: λ_i = 0  (no scarcity yet; any positive-J plan is acceptable).
+    # Update rule after committing k ships:
+    #   λ_i  ←  (ships_committed / ships_remaining) · γ
+    # This captures the non-linear rise in scarcity as budget depletes.
+    #
+    lambda_price = {pid: 0.0 for pid in my_planets}
+
+    all_candidates = []   # (roi, J, src, tgt, plan, kind)
+
+    for src_id, src in my_planets.items():
+        budget = max(0, int(src.ships) - 1)
+        if budget < 1:
+            continue
+
+        src_exposure = exposure.get(src_id, 0.0)
+
+        for tgt in all_planets:
+            if tgt.id == src_id:
+                continue
+
+            avail = budget - committed[src_id]
+            if avail < 1:
+                continue
+
+            t_owner  = tgt.owner
+            is_mine  = (t_owner == player)
+            is_enemy = (t_owner not in (-1, player))
+
+            # ── Classify plan kind ────────────────────────────────────────────
+            if is_mine:
+                # Defence or logistics
+                tgt_exposure = exposure.get(tgt.id, 0.0)
+                tgt_threat   = threat_map.get(tgt.id, 0.0)
+
+                # Defence: planet has incoming threat AND is more exposed than src
+                if tgt_threat >= 5.0 and tgt_exposure >= src_exposure * 0.8:
+                    kind = 'defense'
+                # Logistics: backline → frontline (no threat necessary)
+                elif (not exposure.get(src_id, False)    # src is backline (low exposure)
+                      and src_exposure < 0.5
+                      and tgt_exposure > src_exposure * 1.1
+                      and avail >= LOGISTICS_MIN_SURPLUS):
+                    kind = 'logistics'
+                else:
+                    continue   # No strategic reason to send ships here
+            else:
+                kind = 'attack'
+
+            # ── Query predictive engine ───────────────────────────────────────
+            plans = find_valid_plan(src, tgt, timeline, avail, player, k_state)
+            if not plans:
+                continue
+
+            for plan in plans:
+                S_plan = plan["ships"]
+                T_plan = plan["T"]
+
+                if S_plan > avail:
+                    continue
+
+                # ── Compute optimal ship count via T* crossover ───────────────
+                if kind == 'attack':
+                    S_opt = optimal_ship_count(src, tgt, T_plan, S_plan, avail)
+                    # Cap at available; re-check plan validity is guaranteed by
+                    # the engine (S_plan ≤ S_opt, so fortification does not
+                    # violate the capture requirement)
+                    if S_opt > avail:
+                        S_opt = avail
+                    adjusted_plan = {"T": T_plan, "ships": S_opt,
+                                     "angle": plan["angle"]}
+                else:
+                    # Defence / logistics: send exactly what the engine recommends
+                    S_opt = S_plan
+                    adjusted_plan = plan
+
+                # ── Score the plan ────────────────────────────────────────────
+                roi, J = compute_plan_score(
+                    src, tgt, adjusted_plan,
+                    player, k_state, timeline, T_h,
+                    leader_id, aggression)
+
+                # Logistics discount
+                if kind == 'logistics':
+                    roi *= W_LOGISTICS_DISC
+                    J   *= W_LOGISTICS_DISC
+
+                all_candidates.append((roi, J, src, tgt, adjusted_plan, kind))
+
+    # ── Phase 3: Lagrangian greedy assignment ──────────────────────────────────
+    #
+    # Sort by ROI (value per ship) descending.
+    # For each candidate:
+    #   (a) Check ship budget of source.
+    #   (b) Net-value gate: J − λ_i · S > 0   (worth the shadow cost).
+    #   (c) Deduplication: one fleet per target (defence can stack if needed).
+    #   (d) Commit; update λ_i.
+    #
+    all_candidates.sort(key=lambda c: -c[0])
+
+    moves      = []
+    targeted   = set()   # targets already receiving an attack fleet
+    defended   = set()   # targets already receiving a defence fleet
+    logistics  = set()   # targets already receiving a logistics transfer
+
+    for roi, J, src, tgt, plan, kind in all_candidates:
+        S      = plan["ships"]
+        src_id = src.id
+
+        # ── Budget check ──────────────────────────────────────────────────────
+        avail = int(my_planets[src_id].ships) - 1 - committed[src_id]
+        if S > avail:
+            continue
+
+        # ── Deduplication ─────────────────────────────────────────────────────
+        if kind == 'attack'   and tgt.id in targeted:   continue
+        if kind == 'defense'  and tgt.id in defended:   continue
+        if kind == 'logistics'and tgt.id in logistics:  continue
+
+        # Cross-check: do not simultaneously attack AND defend the same target
+        if kind == 'attack'  and tgt.id in defended:    continue
+        if kind == 'defense' and tgt.id in targeted:    continue
+
+        # ── Net-value Lagrangian gate ─────────────────────────────────────────
+        # J − λ_i · S > 0  means the plan earns more than the opportunity cost
+        # of the ships at their current scarcity price.
+        net_value = J - lambda_price[src_id] * S
+        if net_value <= 0:
+            continue   # Not worth committing at current shadow price
+
+        # ── Execute move ──────────────────────────────────────────────────────
+        moves.append([int(src_id), float(plan["angle"]), int(S)])
+        committed[src_id] += S
+
+        # ── Update shadow price (scarcity premium) ────────────────────────────
+        #
+        # λ_i(k+1) = (committed_i / remaining_i) · γ
+        #
+        # As remaining → 0, λ → ∞ (scarce ships only go to top-priority plans).
+        remaining = int(my_planets[src_id].ships) - 1 - committed[src_id]
+        if remaining > 0:
+            lambda_price[src_id] = (committed[src_id] / remaining) * W_OPP
+        else:
+            lambda_price[src_id] = float('inf')   # Budget exhausted
+
+        # ── Register assignment ───────────────────────────────────────────────
+        if   kind == 'attack':    targeted.add(tgt.id)
+        elif kind == 'defense':   defended.add(tgt.id)
+        elif kind == 'logistics': logistics.add(tgt.id)
+
+    return moves
+
+
+# ==============================================================================
+# SECTION 7-H  ─  Modified Agent Entry Point
+# ==============================================================================
+#
+# Drop-in replacement for the existing `agent()` function.
+# Only the strategy section (previously the greedy loop) is replaced;
+# all kinematics, ray-tracing, and timeline simulation code is UNCHANGED.
+#
+# How to integrate:
+#   1. Paste sections 7-A through 7-H after section 6 in your file.
+#   2. Replace the body of agent() from "moves = []" onward with the call below.
+#
+# ==============================================================================
+
+def agent_v2(obs) -> list:
+    """
+    Orbit Wars agent with mathematical strategy layer.
+    Sections 1-6 (kinematics + simulation) are identical to the original.
+    Section 7 (strategy) uses Lagrangian optimisation.
+    """
+    # ── Parse ──────────────────────────────────────────────────────────────────
+    _d      = isinstance(obs, dict)
+    player  = obs.get("player", 0)      if _d else getattr(obs, "player", 0)
+    obs_fl  = obs.get("fleets", [])     if _d else getattr(obs, "fleets", [])
+
+    # ── Kinematics & simulation (UNCHANGED from original sections 3-5) ─────────
+    k_state     = KinematicsState(obs)
+    fleet_dests = predict_fleet_destinations(obs_fl, k_state)
+    timeline    = TimelineSimulator(k_state, fleet_dests)
+
+    # ── Mathematical strategy layer (Section 7) ────────────────────────────────
+    return generate_strategy_moves(player, k_state, timeline, obs_fleets=obs_fl)

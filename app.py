@@ -4,12 +4,20 @@ import run_match
 import analytics
 import glob
 import subprocess
+import random
+import threading
 
 app = Flask(__name__)
 
+# kaggle_environments isn't thread-safe for stdout. We use this lock for simulations.
+simulation_lock = threading.Lock()
+
 def get_active_models():
-    models = {"random": "Random"}
+    models = {}
     agent_files = glob.glob(os.path.join(run_match.BASE_DIR, "agents", "*.py"))
+    
+    # Sort files by modification time (newest first)
+    agent_files.sort(key=os.path.getmtime, reverse=True)
     
     # Custom display names for some models
     lookup = {
@@ -28,6 +36,7 @@ def get_active_models():
             display = key.replace("_", " ").title()
             models[key] = lookup.get(key, display)
             
+    models["random"] = "Random"
     return models
 
 @app.route('/')
@@ -75,37 +84,45 @@ def index():
 
 @app.route('/run', methods=['POST'])
 def run_game():
-    data = request.json
-    mode = data.get('mode', '1v1')
-    p1 = data.get('p1', 'random')
-    p2 = data.get('p2', 'random')
-    p3 = data.get('p3', 'random')
-    p4 = data.get('p4', 'random')
-    seed = int(data.get('seed', 42))
-
-    models = get_active_models()
-    agents = []
-    labels = []
-    
-    def get_agent(name):
-        if name == "random": return "random"
-        return run_match.load_agent_from_file(os.path.join(run_match.BASE_DIR, "agents", f"{name}.py"))
-
-    agents.append(get_agent(p1))
-    labels.append(models.get(p1, "Unknown"))
-    agents.append(get_agent(p2))
-    labels.append(models.get(p2, "Unknown"))
-
-    if mode == 'ffa':
-        agents.append(get_agent(p3))
-        labels.append(models.get(p3, "Unknown"))
-        agents.append(get_agent(p4))
-        labels.append(models.get(p4, "Unknown"))
-
-    match_label = f"{mode.upper()}: " + " vs ".join(labels)
-    
     try:
-        env, html_path = run_match.run(agents, labels, match_label, save_replay=True, seed=seed)
+        data = request.json
+        mode = data.get('mode', '1v1')
+        p1 = data.get('p1', 'random')
+        p2 = data.get('p2', 'random')
+        p3 = data.get('p3', 'random')
+        p4 = data.get('p4', 'random')
+        
+        seed_val = data.get('seed')
+        try:
+            seed = int(seed_val) if seed_val else random.randint(1, 99999999)
+        except (ValueError, TypeError):
+            seed = random.randint(1, 99999999)
+
+        models = get_active_models()
+        agents = []
+        labels = []
+        
+        def get_agent(name):
+            if name == "random": return "random"
+            return run_match.load_agent_from_file(os.path.join(run_match.BASE_DIR, "agents", f"{name}.py"))
+
+        agents.append(get_agent(p1))
+        labels.append(models.get(p1, "Unknown"))
+        agents.append(get_agent(p2))
+        labels.append(models.get(p2, "Unknown"))
+
+        if mode == 'ffa':
+            agents.append(get_agent(p3))
+            labels.append(models.get(p3, "Unknown"))
+            agents.append(get_agent(p4))
+            labels.append(models.get(p4, "Unknown"))
+
+        match_label = f"{mode.upper()}: " + " vs ".join(labels)
+        
+        # kaggle_environments is not thread-safe and intercepts sys.stdout.
+        # We must lock this section so multiple rapid clicks don't corrupt stdout.
+        with simulation_lock:
+            env, html_path = run_match.run(agents, labels, match_label, save_replay=True, seed=seed)
         
         # Extract final scores from the environment
         results = [(i, s.reward) for i, s in enumerate(env.steps[-1])]
@@ -116,9 +133,12 @@ def run_game():
             scores_text.append(f"P{i}: {status}")
 
         filename = os.path.basename(html_path)
-        return jsonify({"success": True, "replay_url": f"/replays/{filename}", "scores": scores_text})
+        return jsonify({"success": True, "replay_url": f"/replays/{filename}", "scores": scores_text, "seed": seed})
     except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+        import traceback
+        trace = traceback.format_exc()
+        print(trace)
+        return jsonify({"success": False, "error": f"{str(e)}\n\nTraceback:\n{trace}"})
 
 @app.route('/replays/<filename>')
 def serve_replay(filename):
@@ -161,4 +181,6 @@ def analytics_page():
     return render_template('analytics.html', models=models)
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5005, use_reloader=False)
+    app.run(debug=True, port=5005, host='0.0.0.0', use_reloader=False)
+
+

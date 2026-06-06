@@ -17,11 +17,11 @@ import datetime
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
-V1_PATH      = os.path.join(BASE_DIR, "agents", "v1_baseline.py")
-V2_PATH      = os.path.join(BASE_DIR, "agents", "v2_sniper_plus.py")
-V3_PATH      = os.path.join(BASE_DIR, "agents", "v3_precision_striker.py")
-V4_PATH      = os.path.join(BASE_DIR, "agents", "v4_adaptive_conqueror.py")
-V5_PATH      = os.path.join(BASE_DIR, "agents", "v5_swarm_intelligence.py")
+V1_PATH      = os.path.join(BASE_DIR, "agents", "qwen_tech_v1.py")
+V2_PATH      = os.path.join(BASE_DIR, "agents", "claude_tech_v1.py")
+V3_PATH      = os.path.join(BASE_DIR, "agents", "kimi_tech_v1.py")
+V4_PATH      = os.path.join(BASE_DIR, "agents", "deepseek_tech_v1.py")
+V5_PATH      = os.path.join(BASE_DIR, "agents", "chatgpt_v5.py")
 REPLAY_DIR    = os.path.join(BASE_DIR, "replays")
 RESULTS_DIR   = os.path.join(BASE_DIR, "results")
 
@@ -108,9 +108,9 @@ def main():
 
     # 4-Player Match
     run(
-        [v5, v4, v2, v1], 
-        ["v5 (Swarm)", "v4 (Adaptive)", "v2 (Sniper+)", "v1 (Baseline)"], 
-        "4-Player: v5 vs v4 vs v2 vs v1", 
+        [v1, v2, v3, v4], 
+        ["Qwen", "Claude", "Kimi", "Deepseek"], 
+        "4-Player: Qwen vs Claude vs Kimi vs Deepseek", 
         save, 
         seed
     )

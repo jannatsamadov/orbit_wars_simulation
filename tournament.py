@@ -181,9 +181,8 @@ def run_tournament(matches_for_phase1=200, max_matches=None):
         initialize_new_agents(state, available_agents)
         
         # Decide Phase
-        is_phase_2 = state["matches_played"] >= matches_for_phase1
-        if is_phase_2:
-            print(f"*** PHASE 2 ACTIVE *** (Top 6 Agents Only)")
+        # We disable Phase 2 so all agents play evenly regardless of matches played
+        is_phase_2 = False
             
         matchup = select_matchup(state, available_agents, is_phase_2)
         print(f"\nStarting match #{state['matches_played'] + 1} with {len(matchup)} players:")
