@@ -1,5 +1,7 @@
 # Orbit Wars - AI Agent Tournament Framework
 
+![Orbit Wars Dashboard](assets/dashboard.png)
+
 Orbit Wars is a fast-paced, real-time strategy space game where players conquer planets by dispatching fleets of ships. This repository provides a **Complete Local Framework** to build, test, and run an automated ELO tournament for your AI agents before submitting them to the Kaggle competition.
 
 ## 🚀 Features

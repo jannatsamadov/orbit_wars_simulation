@@ -46,7 +46,7 @@ def index():
     # Load Tournament Leaderboard Data
     leaderboard = []
     matches_played = 0
-    state_file = os.path.join(run_match.BASE_DIR, "tournament_state.json")
+    state_file = os.path.join(run_match.BASE_DIR, "results", "tournament", "tournament_state.json")
     if os.path.exists(state_file):
         import json
         with open(state_file, 'r') as sf:
@@ -142,13 +142,19 @@ def run_game():
 
 @app.route('/replays/<filename>')
 def serve_replay(filename):
-    replay_dir = os.path.join(run_match.BASE_DIR, "replays")
+    replay_dir = os.path.join(run_match.BASE_DIR, "results", "replays")
     return send_file(os.path.join(replay_dir, filename))
 
 @app.route('/api/stats')
 def api_stats():
     log_path = os.path.join(run_match.BASE_DIR, "results", "match_log.txt")
     stats = analytics.analyze_matches(log_path)
+    try:
+        leaderboard, _ = analytics.get_leaderboard()
+        stats['leaderboard'] = leaderboard
+    except Exception as e:
+        print("Error getting leaderboard for stats:", e)
+        stats['leaderboard'] = []
     return jsonify(stats)
 
 tournament_process = None
@@ -158,9 +164,9 @@ def restart_tournament():
     global tournament_process
     try:
         import time
-        state_file = os.path.join(run_match.BASE_DIR, "tournament_state.json")
+        state_file = os.path.join(run_match.BASE_DIR, "results", "tournament", "tournament_state.json")
         if os.path.exists(state_file):
-            backup_file = os.path.join(run_match.BASE_DIR, f"tournament_state_backup_{int(time.time())}.json")
+            backup_file = os.path.join(run_match.BASE_DIR, "results", "tournament", f"tournament_state_backup_{int(time.time())}.json")
             os.rename(state_file, backup_file)
             
         if tournament_process is not None:

@@ -80,6 +80,7 @@
             padding: 1.5rem;
             backdrop-filter: blur(16px);
             flex: 1;
+            min-width: 0;
         }
 
         .card-title {
@@ -96,35 +97,74 @@
             border-collapse: collapse;
             font-size: 0.85rem;
             margin: 0 auto;
+            margin-top: 2rem;
+            width: 90%;
+            table-layout: fixed;
         }
         th, td {
             border: 1px solid var(--bg-dark);
         }
-        td {
-            width: 25px;
-            height: 25px;
+        td.matrix-cell {
             padding: 0;
             transition: transform 0.1s;
         }
-        td:hover {
+        .matrix-cell-inner {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            box-sizing: border-box;
+            cursor: pointer;
+        }
+        td.matrix-cell:hover {
             transform: scale(1.1);
             z-index: 10;
             position: relative;
             box-shadow: 0 0 10px rgba(0,0,0,0.5);
         }
-        th {
-            background: rgba(15, 23, 42, 0.8);
-            color: var(--text-muted);
-            font-weight: 600;
-            padding: 0.5rem;
+        th.rotate-bottom {
+            height: 100px;
+            white-space: nowrap;
+            position: relative;
+            vertical-align: top;
+            padding: 10px 0 0 0; /* padding from top to prevent overlap */
+            border: none;
         }
-        td.first-col {
-            background: rgba(15, 23, 42, 0.8);
+        th.rotate-bottom > div {
+            transform: rotate(-45deg);
+            width: 45px;
+            transform-origin: top right; /* grows down-left */
+            font-size: 0.85rem;
             color: var(--text-muted);
             font-weight: 600;
             text-align: right;
-            padding: 0.5rem;
-            width: auto;
+            padding-right: 5px;
+        }
+        td.first-col {
+            background: transparent;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-align: right;
+            padding: 0 15px 0 0; /* padding from right to prevent overlap */
+            width: 120px;
+            border: none;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+        td.first-col > div {
+            display: inline-block;
+            transform: rotate(-45deg);
+            transform-origin: right center; /* grows down-left relative to right center */
+            font-size: 0.85rem;
+            width: 120px;
+        }
+
+        .chart-scroll-container {
+            width: 100%;
+            overflow-x: auto;
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+        .chart-scroll-container::-webkit-scrollbar {
+            display: none;
         }
         
         .spinner {
@@ -196,8 +236,10 @@
                 <!-- Bar Chart: Game Size Performance -->
                 <div class="card" style="flex: 1;">
                     <div class="card-title">Win Rate Comparison: 2-Player vs 4-Player</div>
-                    <div style="position: relative; height: 350px; width: 100%;">
-                        <canvas id="sizeChart"></canvas>
+                    <div class="chart-scroll-container">
+                        <div id="chartContainer" style="position: relative; height: 350px; min-width: 100%;">
+                            <canvas id="sizeChart"></canvas>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -249,7 +291,7 @@
                 document.getElementById('tot-seeds').textContent = data.unique_seeds;
 
                 buildSizeChart(data.size_perf);
-                buildH2HTable(data.head_to_head);
+                buildH2HTable(data.head_to_head, data.leaderboard);
 
             } catch (err) {
                 console.error("Failed to load stats", err);
@@ -257,8 +299,14 @@
             }
         }
 
+        let sizeChartInstance = null;
+
         function buildSizeChart(sizePerf) {
             const ctx = document.getElementById('sizeChart').getContext('2d');
+            
+            if (sizeChartInstance) {
+                sizeChartInstance.destroy();
+            }
             
             // Extract model names and sort by total matches to show most active ones first
             let models = Object.keys(sizePerf);
@@ -268,14 +316,14 @@
                 return m_b - m_a;
             });
             
-            // Limit to top 15 models to avoid clutter
-            models = models.slice(0, 15);
+            // Adjust container width based on number of models to enable horizontal scroll
+            document.getElementById('chartContainer').style.width = Math.max(600, models.length * 80) + 'px';
             
             const labels = models.map(m => shortName(m));
             const data2P = models.map(m => sizePerf[m]["2"].win_rate);
             const data4P = models.map(m => sizePerf[m]["4"].win_rate);
 
-            new Chart(ctx, {
+            sizeChartInstance = new Chart(ctx, {
                 type: 'bar',
                 data: {
                     labels: labels,
@@ -318,56 +366,79 @@
             });
         }
 
-        function buildH2HTable(h2h) {
+        function buildH2HTable(h2h, leaderboard) {
             const table = document.getElementById('h2hTable');
-            let models = Object.keys(h2h);
+            table.innerHTML = ''; // Fix duplication issue
             
-            // Sort by average win rate across all opponents
-            models.sort((a, b) => {
-                let sumA = 0, countA = 0;
-                let sumB = 0, countB = 0;
-                for (let opp in h2h[a]) { sumA += h2h[a][opp].win_rate; countA++; }
-                for (let opp in h2h[b]) { sumB += h2h[b][opp].win_rate; countB++; }
-                let avgA = countA > 0 ? sumA/countA : 0;
-                let avgB = countB > 0 ? sumB/countB : 0;
-                return avgB - avgA; // descending
-            });
+            let models = [];
             
-            // Header Row
-            let thead = '<tr><th>vs</th>';
-            models.forEach(m => {
-                thead += `<th title="${m}">${shortName(m)}</th>`;
-            });
-            thead += '</tr>';
-            table.innerHTML = thead;
-
+            if (leaderboard && leaderboard.length > 0) {
+                const lbModels = leaderboard.map(p => p.name);
+                models = lbModels.filter(m => h2h[m] !== undefined).slice(0, 12);
+            }
+            
+            if (models.length === 0) {
+                models = Object.keys(h2h);
+                // Sort by average win rate across all opponents
+                models.sort((a, b) => {
+                    let sumA = 0, countA = 0;
+                    let sumB = 0, countB = 0;
+                    for (let opp in h2h[a]) { sumA += h2h[a][opp].win_rate; countA++; }
+                    for (let opp in h2h[b]) { sumB += h2h[b][opp].win_rate; countB++; }
+                    let avgA = countA > 0 ? sumA/countA : 0;
+                    let avgB = countB > 0 ? sumB/countB : 0;
+                    return avgB - avgA; // descending
+                });
+                models = models.slice(0, 12);
+            }
+            
             // Body Rows
             models.forEach(m1 => {
                 let tr = document.createElement('tr');
-                tr.innerHTML = `<td class="first-col" title="${m1}">${shortName(m1)}</td>`;
+                
+                // Add left label (first-col)
+                tr.innerHTML += `<td class="first-col" title="${m1}"><div>${shortName(m1)}</div></td>`;
                 
                 models.forEach(m2 => {
                     let td = document.createElement('td');
+                    td.className = 'matrix-cell';
+                    
+                    let innerDiv = document.createElement('div');
+                    innerDiv.className = 'matrix-cell-inner';
+                    
                     if (m1 === m2) {
-                        td.style.background = 'rgba(255,255,255,0.05)';
-                        td.title = "N/A (Same Model)";
+                        innerDiv.style.background = 'rgba(255,255,255,0.05)';
+                        innerDiv.title = "N/A (Same Model)";
                     } else {
                         const stats = h2h[m1][m2];
                         if (stats && stats.matches > 0) {
-                            td.style.background = colorScale(stats.win_rate);
-                            td.title = `${shortName(m1)} vs ${shortName(m2)}: ${stats.win_rate}% Win Rate (${stats.wins}/${stats.matches} wins)`;
+                            innerDiv.style.background = colorScale(stats.win_rate);
+                            innerDiv.title = `${shortName(m1)} vs ${shortName(m2)}: ${stats.win_rate}% Win Rate (${stats.wins}/${stats.matches} wins)`;
                         } else {
-                            td.style.background = 'rgba(255, 255, 255, 0.02)';
-                            td.title = `${shortName(m1)} vs ${shortName(m2)}: 0 Matches`;
+                            innerDiv.style.background = 'rgba(255, 255, 255, 0.02)';
+                            innerDiv.title = `${shortName(m1)} vs ${shortName(m2)}: 0 Matches`;
                         }
                     }
+                    td.appendChild(innerDiv);
                     tr.appendChild(td);
                 });
+                
                 table.appendChild(tr);
             });
+
+            // Footer Row (Bottom Headers)
+            let tfoot = document.createElement('tr');
+            tfoot.innerHTML += '<td style="border:none;"></td>'; // empty cell for bottom-left corner
+            models.forEach(m => {
+                tfoot.innerHTML += `<th class="rotate-bottom" title="${m}"><div>${shortName(m)}</div></th>`;
+            });
+            table.appendChild(tfoot);
         }
 
-        window.onload = fetchStats;
+        window.onload = () => {
+            fetchStats();
+            setInterval(fetchStats, 15000); // Auto-refresh every 15 seconds
+        };
     </script>
 </body>
 </html>

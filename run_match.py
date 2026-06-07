@@ -14,6 +14,7 @@ import os
 import argparse
 import importlib.util
 import datetime
+import json
 
 # ── paths ─────────────────────────────────────────────────────────────────────
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
@@ -22,7 +23,7 @@ V2_PATH      = os.path.join(BASE_DIR, "agents", "claude_tech_v1.py")
 V3_PATH      = os.path.join(BASE_DIR, "agents", "kimi_tech_v1.py")
 V4_PATH      = os.path.join(BASE_DIR, "agents", "deepseek_tech_v1.py")
 V5_PATH      = os.path.join(BASE_DIR, "agents", "chatgpt_v5.py")
-REPLAY_DIR    = os.path.join(BASE_DIR, "replays")
+REPLAY_DIR    = os.path.join(BASE_DIR, "results", "replays")
 RESULTS_DIR   = os.path.join(BASE_DIR, "results")
 
 os.makedirs(REPLAY_DIR, exist_ok=True)
@@ -64,6 +65,9 @@ def run(agents_list, labels_list, match_label: str, save_replay: bool = True, se
     print(f"\n  >> Winner: Player {winner[0]} ({labels_list[winner[0]]})")
 
     if save_replay:
+        # Təhlükəsizlik üçün REPLAY_DIR mövcudluğunu burada da yoxlayaq (əgər server köhnə kodu xatırlayırsa)
+        os.makedirs(REPLAY_DIR, exist_ok=True)
+        
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         safe_label = match_label.replace(" ", "_").replace("/", "-").replace(":", "")
         html_path = os.path.join(REPLAY_DIR, f"{timestamp}_{safe_label}.html")
@@ -75,6 +79,14 @@ def run(agents_list, labels_list, match_label: str, save_replay: bool = True, se
             f.write(html_content)
 
         print(f"  Replay saved --> {html_path}")
+
+        # Gələcək analizlər üçün JSON formatında fayl kimi saxlamaq (Sizin Təklifiniz)
+        jsons_dir = os.path.join(RESULTS_DIR, "jsons")
+        os.makedirs(jsons_dir, exist_ok=True)
+        json_path = os.path.join(jsons_dir, f"{timestamp}_{safe_label}.json")
+        with open(json_path, "w", encoding="utf-8") as f:
+            json.dump(env.toJSON(), f)
+        print(f"  JSON Data saved --> {json_path}")
 
     # ── append to results log ────────────────────────────────────────────────
     log_path = os.path.join(RESULTS_DIR, "match_log.txt")

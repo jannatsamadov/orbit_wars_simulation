@@ -7,7 +7,7 @@ import datetime
 from collections import defaultdict
 from kaggle_environments import make
 
-STATE_FILE = "tournament_state.json"
+STATE_FILE = os.path.join("results", "tournament", "tournament_state.json")
 AGENTS_DIR = "agents"
 K_FACTOR = 32
 
